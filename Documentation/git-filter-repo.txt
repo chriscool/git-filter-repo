@@ -1791,11 +1791,9 @@ heavy lifting, it inherits limitations from those systems:
   * commits get rewritten meaning they will have new hashes; therefore,
     signatures on commits and tags cannot continue to work and instead are
     just removed (thus signed tags become annotated tags)
-  * tags of commits are supported.  Prior to git-2.24.0, tags of blobs and
-    tags of tags are not supported (fast-export would die on such tags).
-    tags of trees are not supported in any git version (since fast-export
-    ignores tags of trees with a warning and fast-import provides no way to
-    import them).
+  * tags of commits, blobs and tags are supported.  tags of trees are
+    not supported in any git version (since fast-export ignores tags of
+    trees with a warning and fast-import provides no way to import them).
   * annotated and signed tags outside of the refs/tags/ namespace are not
     supported (their location will be mangled in weird ways)
   * fast-import will die on various forms of invalid input, such as a
