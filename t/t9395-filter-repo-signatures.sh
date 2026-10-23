@@ -38,6 +38,10 @@ compare_revs () {
 	done
 }
 
+test_lazy_prereq GIT_2_54 '
+	git fast-import --signed-tags=strip-if-invalid </dev/null
+'
+
 test_expect_success 'setup signed history for signature tests' '
 	test_create_repo signed &&
 	(
@@ -76,6 +80,62 @@ test_expect_success 'signatures are stripped by default' '
 		test_must_fail git verify-commit HEAD &&
 
 		git cat-file tag v1.0 >tag &&
+		! grep "BEGIN SSH SIGNATURE" tag &&
+		test_must_fail git verify-tag v1.0
+	)
+'
+
+test_expect_success GIT_2_54 'signatures are preserved with --preserve-signatures' '
+	git clone --no-local signed preserved &&
+	(
+		cd preserved &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+
+		git filter-repo --force --preserve-signatures &&
+
+		compare_revs = ../signed initial second third merge v1.0 &&
+
+		git verify-commit initial second third merge &&
+		git verify-tag v1.0
+	)
+'
+
+test_expect_success GIT_2_54 'modified commits and their descendants lose their signatures' '
+	git clone --no-local signed modified-commit &&
+	(
+		cd modified-commit &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+		echo "second==>second modified" >../commit-expr &&
+
+		git filter-repo --force --preserve-signatures \
+			--replace-message ../commit-expr &&
+
+		compare_revs = ../signed initial third &&
+		git verify-commit initial third &&
+
+		compare_revs != ../signed second merge v1.0 &&
+		test_must_fail git verify-commit second &&
+		test_must_fail git verify-commit merge &&
+		test_must_fail git verify-tag v1.0
+	)
+'
+
+test_expect_success GIT_2_54 'a modified tag loses its signature' '
+	git clone --no-local signed modified-tag &&
+	(
+		cd modified-tag &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+		echo "signed tag==>modified tag" >../tag-expr &&
+
+		git filter-repo --force --preserve-signatures \
+			--replace-message ../tag-expr &&
+
+		compare_revs = ../signed initial second third merge &&
+		git verify-commit initial second third merge &&
+
+		compare_revs != ../signed v1.0 &&
+		git cat-file tag v1.0 >tag &&
+		grep "modified tag" tag &&
 		! grep "BEGIN SSH SIGNATURE" tag &&
 		test_must_fail git verify-tag v1.0
 	)

@@ -1798,6 +1798,8 @@ class GitUtils(object):
       date_format_permissive = False
     if args.sensitive_data_removal and version < (2, 36, 0): # pragma: no cover
       raise SystemExit(_("Error: need git >= 2.36.0"))
+    if args.preserve_signatures and version < (2, 54, 0): # pragma: no cover
+      raise SystemExit(_("Error: need git >= 2.54.0"))
 
 class FilteringOptions(object):
   default_replace_text = b'***REMOVED***'
@@ -2086,6 +2088,11 @@ EXAMPLES
         help=_("Do not reencode commit messages into UTF-8.  By default, if "
                "the commit object specifies an encoding for the commit "
                "message, the message is re-encoded into UTF-8."))
+    messages.add_argument('--preserve-signatures', action='store_true',
+        help=_("Preserve commit and tag signatures that are still valid after "
+               "filtering.  Signatures on modified commits or tags are "
+               "stripped.  Requires git >= 2.54.0.  The signers' public "
+               "keys must be available for verification."))
 
     people = parser.add_argument_group(title=_("Filtering of names & emails "
                                                "(see also --name-callback "
@@ -4343,12 +4350,17 @@ class RepoFilter(object):
                             b'--import-marks='+source_marks_file])
       reencode = 'no' if self._args.preserve_commit_encoding else 'yes'
       extra_flags.append('--reencode='+reencode)
+      if self._args.preserve_signatures:
+        extra_flags.extend([b'--signed-commits=verbatim',
+                            b'--signed-tags=verbatim'])
+      else:
+        extra_flags.append('--signed-tags=strip')
       if self._args.date_order:
         extra_flags.append('--date-order')
       location = ['-C', self._args.source] if self._args.source else []
       fep_cmd = ['git'] + location + ['fast-export', '--show-original-ids',
-                 '--signed-tags=strip', '--tag-of-filtered-object=rewrite',
-                 '--fake-missing-tagger', '--reference-excluded-parents'
+                 '--tag-of-filtered-object=rewrite', '--fake-missing-tagger',
+                 '--reference-excluded-parents'
                  ] + extra_flags + self._args.refs
       self._fep = subproc.Popen(fep_cmd, bufsize=-1, stdout=subprocess.PIPE)
       self._input = self._fep.stdout
@@ -4370,6 +4382,9 @@ class RepoFilter(object):
                                       'fast-import', '--force', '--quiet']
       if date_format_permissive:
         fip_cmd.append('--date-format=raw-permissive')
+      if self._args.preserve_signatures:
+        fip_cmd.extend([b'--signed-commits=strip-if-invalid',
+                        b'--signed-tags=strip-if-invalid'])
       if self._args.state_branch:
         target_marks_file = self._load_marks_file(b'target-marks')
         fip_cmd.extend([b'--export-marks='+target_marks_file,
