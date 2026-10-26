@@ -141,4 +141,106 @@ test_expect_success GIT_2_54 'a modified tag loses its signature' '
 	)
 '
 
+test_expect_success GIT_2_54 '--preserve-signatures=bogus fails' '
+	git clone --no-local signed bogus &&
+	(
+		cd bogus &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+
+		test_must_fail git filter-repo --force --preserve-signatures=bogus 2>err &&
+		grep "invalid mode" err &&
+
+		test_must_fail git filter-repo --force --preserve-signatures=re-sign= 2>err &&
+		grep "invalid mode" err
+	)
+'
+
+test_expect_success GIT_2_54 '--preserve-signatures=abort with modified commits' '
+	git clone --no-local signed modified-abort &&
+	(
+		cd modified-abort &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+		echo "second==>second modified" >../commit-expr &&
+
+		test_must_fail git filter-repo --force --preserve-signatures=abort \
+			--replace-message ../commit-expr 2>err &&
+
+		grep "fast-import failed" err &&
+		! grep Traceback err &&
+
+		compare_revs = ../signed initial second third merge v1.0 &&
+
+		git verify-commit initial second third merge &&
+		git verify-tag v1.0
+	)
+'
+
+test_expect_success GIT_2_54 '--preserve-signatures=abort with no modification' '
+	git clone --no-local signed preserved-abort &&
+	(
+		cd preserved-abort &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+
+		git filter-repo --force --preserve-signatures=abort &&
+
+		compare_revs = ../signed initial second third merge v1.0 &&
+
+		git verify-commit initial second third merge &&
+		git verify-tag v1.0
+	)
+'
+
+test_expect_success GIT_2_54 '--preserve-signatures=re-sign with modified commits' '
+	git clone --no-local signed re-sign-modified &&
+	(
+		cd re-sign-modified &&
+		git config gpg.format ssh &&
+		git config user.signingKey "${GPGSSH_KEY_PRIMARY}" &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+		echo "second==>second modified" >../commit-expr &&
+
+		git filter-repo --force --preserve-signatures=re-sign \
+			--replace-message ../commit-expr &&
+
+		compare_revs = ../signed initial third &&
+		compare_revs != ../signed second merge v1.0 &&
+
+		git verify-commit initial second third merge &&
+		git verify-tag v1.0
+	)
+'
+
+test_expect_success GIT_2_54 '--preserve-signatures=re-sign=<keyID> with modified commits' '
+	git clone --no-local signed re-sign-keyid &&
+	(
+		cd re-sign-keyid &&
+		git config gpg.format ssh &&
+		git config gpg.ssh.allowedSignersFile "${GPGSSH_ALLOWED_SIGNERS}" &&
+		echo "second==>second modified" >../commit-expr &&
+
+		git filter-repo --force \
+			--preserve-signatures=re-sign="${GPGSSH_KEY_SECONDARY}" \
+			--replace-message ../commit-expr &&
+
+		compare_revs = ../signed initial third &&
+
+		git verify-commit initial 2>out &&
+		grep "principal with number 1" out &&
+
+		git verify-commit third 2>out &&
+		grep "principal with number 1" out &&
+
+		compare_revs != ../signed second merge v1.0 &&
+
+		git verify-commit second 2>out &&
+		grep "principal with number 2" out &&
+
+		git verify-commit merge 2>out &&
+		grep "principal with number 2" out &&
+
+		git verify-tag v1.0 2>out &&
+		grep "principal with number 2" out
+	)
+'
+
 test_done
